@@ -216,65 +216,29 @@ document.addEventListener('DOMContentLoaded', () => {
     let targetFrame = 0;
     let currentFrameIdx = 0;
     let lastDrawnFrame = -1;
-    let heroLocked = true; // true = scroll hijacked for animation
 
-    // How many pixels of wheel delta = 1 frame advance
-    const FRAME_SENSITIVITY = 0.3;
-    let touchStartY = 0;
-
-    // ── Drive the animation forward/backward ──────────────────────────────────
-    const driveAnimation = (delta) => {
-        if (loadedFrameCount === 0) return;
-        const maxFrame = loadedFrameCount - 1;
-        targetFrame = Math.min(maxFrame, Math.max(0, targetFrame + delta * FRAME_SENSITIVITY));
-
-        if (delta > 0 && targetFrame >= maxFrame - 0.5) {
-            targetFrame = maxFrame;
-            unlockHero(); // animation complete → release page scroll
-        }
+    const getScrollRange = () => {
+        // We want the total distance the container CAN scroll natively.
+        return Math.max(1, (heroScrollContainer.scrollHeight || heroScrollContainer.clientHeight) - window.innerHeight);
     };
 
-    // ── Lock: keep page pinned at top ─────────────────────────────────────────
-    const lockHero = () => {
-        heroLocked = true;
-        window.scrollTo({ top: 0, behavior: 'instant' });
-        document.documentElement.style.overflowY = 'hidden';
-    };
-
-    // ── Unlock: let page scroll freely ────────────────────────────────────────
-    const unlockHero = () => {
-        heroLocked = false;
-        document.documentElement.style.overflowY = '';
-    };
-
-    // Re-lock when user scrolls back to the very top
     window.addEventListener('scroll', () => {
-        if (!heroLocked && window.scrollY === 0) {
-            targetFrame = loadedFrameCount - 1; // start reverse from last frame
-            lockHero();
+        const scrollTop = window.scrollY;
+        const containerBottom = heroScrollContainer.offsetTop + (heroScrollContainer.scrollHeight || heroScrollContainer.clientHeight);
+        
+        if (scrollTop <= containerBottom) {
+            const maxScroll = getScrollRange();
+            // The animation will reach max frame at 65% of the container's scroll distance.
+            // This leaves 35% of the scroll container to just "hold" the final frame 
+            // before the sticky section finally un-sticks and scrolls away.
+            const animationEndScroll = maxScroll * 0.65;
+            const scrollFraction = Math.min(Math.max(scrollTop / animationEndScroll, 0), 1);
+            
+            if (loadedFrameCount > 0) {
+                targetFrame = scrollFraction * (loadedFrameCount - 1);
+            }
         }
     }, { passive: true });
-
-    // Wheel hijack
-    window.addEventListener('wheel', (e) => {
-        if (!heroLocked) return;
-        e.preventDefault();
-        driveAnimation(e.deltaY);
-    }, { passive: false });
-
-    // Touch hijack
-    window.addEventListener('touchstart', (e) => {
-        if (!heroLocked) return;
-        touchStartY = e.touches[0].clientY;
-    }, { passive: true });
-
-    window.addEventListener('touchmove', (e) => {
-        if (!heroLocked) return;
-        e.preventDefault();
-        const dy = touchStartY - e.touches[0].clientY;
-        touchStartY = e.touches[0].clientY;
-        driveAnimation(dy);
-    }, { passive: false });
 
     window.addEventListener('resize', () => {
         setCanvasSize();
@@ -289,7 +253,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (Math.abs(diff) < 0.5) {
                 currentFrameIdx = targetFrame;
             } else {
-                currentFrameIdx += diff * 0.12;
+                // Speedy lerp so it catches up faster during rapid scrolls
+                currentFrameIdx += diff * 0.2;
             }
 
             const frameToDraw = Math.min(loadedFrameCount - 1, Math.max(0, Math.round(currentFrameIdx)));
@@ -300,8 +265,6 @@ document.addEventListener('DOMContentLoaded', () => {
         requestAnimationFrame(updateFrameLoop);
     };
 
-    // Start locked at frame 0
-    lockHero();
     preloadImagesDynamically();
     updateFrameLoop();
 

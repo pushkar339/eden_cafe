@@ -274,7 +274,7 @@ a:hover { opacity: 0.75; }
 
 /* ===================== HERO ===================== */
 .hero-scroll-container {
-    height: 400vh;
+    height: 600vh;
     position: relative;
     background-color: var(--c-mocha-dark);
 }
