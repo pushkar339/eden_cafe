@@ -185,26 +185,27 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    const TOTAL_FRAMES = 80;
+
     const preloadImagesDynamically = () => {
         let currentIndex = 1;
 
         const loadNextImage = () => {
+            if (currentIndex > TOTAL_FRAMES) return;
             const img = new Image();
 
             img.onload = () => {
                 images.push(img);
-                loadedFrameCount++;
-
                 if (currentIndex === 1) {
                     drawFrame(0);
                 }
-
                 currentIndex++;
                 loadNextImage();
             };
 
             img.onerror = () => {
-                // End of frames — stop loading
+                currentIndex++;
+                loadNextImage();
             };
 
             img.src = `./images/img_${currentIndex}.jpg`;
@@ -217,48 +218,99 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentFrameIdx = 0;
     let lastDrawnFrame = -1;
 
-    const getScrollRange = () => {
-        // Sticky range: container height - sticky view height
-        return Math.max(1, (heroScrollContainer.scrollHeight || heroScrollContainer.clientHeight) - window.innerHeight);
+    let isLocked = true;
+    let virtualScroll = 0;
+    const SCROLL_PER_FRAME = 30; // Pixels of scroll needed to advance one frame
+    const MAX_VIRTUAL_SCROLL = (TOTAL_FRAMES - 1) * SCROLL_PER_FRAME;
+
+    const lockHero = () => {
+        isLocked = true;
+        document.body.style.overflow = 'hidden';
     };
 
-    window.addEventListener('scroll', () => {
-        const scrollTop = window.scrollY;
-        const containerTop = heroScrollContainer.offsetTop;
-        const containerBottom = containerTop + (heroScrollContainer.scrollHeight || heroScrollContainer.clientHeight);
+    const unlockHero = () => {
+        isLocked = false;
+        document.body.style.overflow = '';
+    };
+
+    const handleScrollEvent = (deltaY) => {
+        if (!isLocked) return;
         
-        if (scrollTop >= containerTop && scrollTop <= containerBottom) {
-            const maxScroll = getScrollRange();
-            const relativeScroll = scrollTop - containerTop;
-            const scrollFraction = Math.min(Math.max(relativeScroll / maxScroll, 0), 1);
-            
-            if (loadedFrameCount > 0) {
-                targetFrame = scrollFraction * (loadedFrameCount - 1);
-            }
-        } else if (scrollTop < containerTop) {
-            targetFrame = 0;
+        virtualScroll += deltaY;
+        virtualScroll = Math.max(0, Math.min(MAX_VIRTUAL_SCROLL, virtualScroll));
+        targetFrame = virtualScroll / SCROLL_PER_FRAME;
+
+        if (virtualScroll >= MAX_VIRTUAL_SCROLL && deltaY > 0) {
+            unlockHero(); // Animation finished fully -> Unlock page
+        } else if (virtualScroll <= 0 && deltaY < 0) {
+            window.scrollTo({ top: 0, behavior: 'instant' }); 
         }
+    };
+
+    window.addEventListener('wheel', (e) => {
+        if (isLocked) {
+            e.preventDefault();
+            handleScrollEvent(e.deltaY);
+        }
+    }, { passive: false });
+
+    let touchStartY = 0;
+    window.addEventListener('touchstart', (e) => {
+        touchStartY = e.touches[0].clientY;
     }, { passive: true });
+
+    window.addEventListener('touchmove', (e) => {
+        if (isLocked) {
+            e.preventDefault();
+            const dy = touchStartY - e.touches[0].clientY;
+            touchStartY = e.touches[0].clientY;
+            handleScrollEvent(dy);
+        }
+    }, { passive: false });
+
+    window.addEventListener('scroll', () => {
+        // Re-lock hero when user scrolls back to the very top natively
+        if (window.scrollY <= 2 && !isLocked) {
+            window.scrollTo({ top: 0, behavior: 'instant' });
+            virtualScroll = MAX_VIRTUAL_SCROLL - 1; // back off slightly so it accepts upward scroll
+            targetFrame = virtualScroll / SCROLL_PER_FRAME;
+            lockHero();
+        }
+    });
 
     window.addEventListener('resize', () => {
         setCanvasSize();
         lastDrawnFrame = -1;
-        const snapFrame = Math.min(loadedFrameCount - 1, Math.max(0, Math.round(currentFrameIdx)));
+        const snapFrame = Math.min(images.length - 1, Math.max(0, Math.round(currentFrameIdx)));
         if (snapFrame >= 0) drawFrame(snapFrame);
     });
 
     const updateFrameLoop = () => {
-        if (loadedFrameCount > 0) {
-            // REMOVED LERP: Map current index directly to target for perfect 1:1 sync
-            currentFrameIdx = targetFrame;
+        if (images.length > 0) {
+            // Smooth lerp creates buttery frame transitions gracefully handling trackpads
+            currentFrameIdx += (targetFrame - currentFrameIdx) * 0.15;
+            
+            let frameToDraw = Math.min(TOTAL_FRAMES - 1, Math.max(0, Math.round(currentFrameIdx)));
+            
+            // Safe fallback if target frame hasn't loaded yet
+            frameToDraw = Math.min(frameToDraw, images.length - 1);
 
-            const frameToDraw = Math.min(loadedFrameCount - 1, Math.max(0, Math.round(currentFrameIdx)));
             if (frameToDraw !== lastDrawnFrame) {
                 drawFrame(frameToDraw);
             }
         }
         requestAnimationFrame(updateFrameLoop);
     };
+
+    // Initialize state properly if page is reloaded mid-scroll
+    if (window.scrollY > 0) {
+        unlockHero();
+        virtualScroll = MAX_VIRTUAL_SCROLL;
+        targetFrame = TOTAL_FRAMES - 1;
+        currentFrameIdx = TOTAL_FRAMES - 1;
+    } else {
+        lockHero();
+    }
 
     preloadImagesDynamically();
     updateFrameLoop();
