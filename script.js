@@ -150,8 +150,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const setCanvasSize = () => {
         const dpr = window.devicePixelRatio || 1;
-        canvas.width = window.innerWidth * dpr;
-        canvas.height = window.innerHeight * dpr;
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        canvas.width = Math.round(w * dpr);
+        canvas.height = Math.round(h * dpr);
+        // Keep CSS size in sync so the canvas doesn't stretch
+        canvas.style.width = w + 'px';
+        canvas.style.height = h + 'px';
     };
     setCanvasSize();
 
@@ -159,7 +164,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const images = [];
 
     const drawImageProp = (ctx, img, x, y, w, h, offsetX = 0.5, offsetY = 0.5) => {
-        const iw = img.width, ih = img.height;
+        if (!img || !img.naturalWidth) return;
+        const iw = img.naturalWidth, ih = img.naturalHeight;
         const r = Math.max(w / iw, h / ih);
         const nw = iw * r, nh = ih * r;
         let cx = 0, cy = 0, cw = nw, ch = nh;
@@ -168,6 +174,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (nh >= h) { cy = (nh - h) * offsetY; ch = h; }
 
         ctx.drawImage(img, cx / r, cy / r, cw / r, ch / r, x, y, w, h);
+    };
+
+    const drawFrame = (index) => {
+        const img = images[index];
+        if (img && img.complete && img.naturalWidth) {
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            drawImageProp(context, img, 0, 0, canvas.width, canvas.height);
+            lastDrawnFrame = index;
+        }
     };
 
     const preloadImagesDynamically = () => {
@@ -181,8 +196,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 loadedFrameCount++;
 
                 if (currentIndex === 1) {
-                    context.clearRect(0, 0, canvas.width, canvas.height);
-                    drawImageProp(context, img, 0, 0, canvas.width, canvas.height);
+                    drawFrame(0);
                 }
 
                 currentIndex++;
@@ -203,10 +217,16 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentFrameIdx = 0;
     let lastDrawnFrame = -1;
 
+    const getScrollRange = () => {
+        // Use scrollHeight to get the true pinned-section scroll distance
+        return Math.max(1, (heroScrollContainer.scrollHeight || heroScrollContainer.clientHeight) - window.innerHeight);
+    };
+
     window.addEventListener('scroll', () => {
         const scrollTop = window.scrollY;
-        if (scrollTop <= heroScrollContainer.clientHeight) {
-            const maxScroll = Math.max(1, heroScrollContainer.clientHeight - window.innerHeight);
+        const containerBottom = heroScrollContainer.offsetTop + (heroScrollContainer.scrollHeight || heroScrollContainer.clientHeight);
+        if (scrollTop <= containerBottom) {
+            const maxScroll = getScrollRange();
             const scrollFraction = Math.min(Math.max(scrollTop / maxScroll, 0), 1);
             if (loadedFrameCount > 0) {
                 targetFrame = scrollFraction * (loadedFrameCount - 1);
@@ -217,19 +237,25 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('resize', () => {
         setCanvasSize();
         lastDrawnFrame = -1;
+        // Immediately redraw current frame at new size
+        const snapFrame = Math.min(loadedFrameCount - 1, Math.max(0, Math.round(currentFrameIdx)));
+        if (snapFrame >= 0) drawFrame(snapFrame);
     });
 
     const updateFrameLoop = () => {
         if (loadedFrameCount > 0) {
-            currentFrameIdx += (targetFrame - currentFrameIdx) * 0.08;
+            const diff = targetFrame - currentFrameIdx;
+            // Snap directly when very close to avoid infinite drift
+            if (Math.abs(diff) < 0.5) {
+                currentFrameIdx = targetFrame;
+            } else {
+                currentFrameIdx += diff * 0.1;
+            }
+
             const frameToDraw = Math.min(loadedFrameCount - 1, Math.max(0, Math.round(currentFrameIdx)));
 
             if (frameToDraw !== lastDrawnFrame) {
-                if (images[frameToDraw] && images[frameToDraw].complete) {
-                    context.clearRect(0, 0, canvas.width, canvas.height);
-                    drawImageProp(context, images[frameToDraw], 0, 0, canvas.width, canvas.height);
-                    lastDrawnFrame = frameToDraw;
-                }
+                drawFrame(frameToDraw);
             }
         }
         requestAnimationFrame(updateFrameLoop);
