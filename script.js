@@ -220,7 +220,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let isLocked = true;
     let virtualScroll = 0;
-    const SCROLL_PER_FRAME = 30; // Pixels of scroll needed to advance one frame
+    const SCROLL_PER_FRAME = 60; // Increased from 30 to 60 to slow down the frame rate per scroll
     const MAX_VIRTUAL_SCROLL = (TOTAL_FRAMES - 1) * SCROLL_PER_FRAME;
 
     const lockHero = () => {
@@ -287,8 +287,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const updateFrameLoop = () => {
         if (images.length > 0) {
-            // Smooth lerp creates buttery frame transitions gracefully handling trackpads
-            currentFrameIdx += (targetFrame - currentFrameIdx) * 0.15;
+            // REMOVED LERP: Frame matches scroll target instantly so it never animates "on its own" after you stop scrolling
+            currentFrameIdx = targetFrame;
             
             let frameToDraw = Math.min(TOTAL_FRAMES - 1, Math.max(0, Math.round(currentFrameIdx)));
             
