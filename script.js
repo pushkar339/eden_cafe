@@ -218,25 +218,25 @@ document.addEventListener('DOMContentLoaded', () => {
     let lastDrawnFrame = -1;
 
     const getScrollRange = () => {
-        // We want the total distance the container CAN scroll natively.
+        // Sticky range: container height - sticky view height
         return Math.max(1, (heroScrollContainer.scrollHeight || heroScrollContainer.clientHeight) - window.innerHeight);
     };
 
     window.addEventListener('scroll', () => {
         const scrollTop = window.scrollY;
-        const containerBottom = heroScrollContainer.offsetTop + (heroScrollContainer.scrollHeight || heroScrollContainer.clientHeight);
+        const containerTop = heroScrollContainer.offsetTop;
+        const containerBottom = containerTop + (heroScrollContainer.scrollHeight || heroScrollContainer.clientHeight);
         
-        if (scrollTop <= containerBottom) {
+        if (scrollTop >= containerTop && scrollTop <= containerBottom) {
             const maxScroll = getScrollRange();
-            // The animation will reach max frame at 65% of the container's scroll distance.
-            // This leaves 35% of the scroll container to just "hold" the final frame 
-            // before the sticky section finally un-sticks and scrolls away.
-            const animationEndScroll = maxScroll * 0.65;
-            const scrollFraction = Math.min(Math.max(scrollTop / animationEndScroll, 0), 1);
+            const relativeScroll = scrollTop - containerTop;
+            const scrollFraction = Math.min(Math.max(relativeScroll / maxScroll, 0), 1);
             
             if (loadedFrameCount > 0) {
                 targetFrame = scrollFraction * (loadedFrameCount - 1);
             }
+        } else if (scrollTop < containerTop) {
+            targetFrame = 0;
         }
     }, { passive: true });
 
@@ -249,13 +249,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const updateFrameLoop = () => {
         if (loadedFrameCount > 0) {
-            const diff = targetFrame - currentFrameIdx;
-            if (Math.abs(diff) < 0.5) {
-                currentFrameIdx = targetFrame;
-            } else {
-                // Speedy lerp so it catches up faster during rapid scrolls
-                currentFrameIdx += diff * 0.2;
-            }
+            // REMOVED LERP: Map current index directly to target for perfect 1:1 sync
+            currentFrameIdx = targetFrame;
 
             const frameToDraw = Math.min(loadedFrameCount - 1, Math.max(0, Math.round(currentFrameIdx)));
             if (frameToDraw !== lastDrawnFrame) {
