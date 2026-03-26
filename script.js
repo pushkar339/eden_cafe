@@ -19,7 +19,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const menuRevealObserver = new IntersectionObserver((entries) => {
         entries.forEach((entry, idx) => {
             if (entry.isIntersecting) {
-                // Use index from nodeList for stagger delay
                 const el = entry.target;
                 const siblings = [...el.parentElement.querySelectorAll('.menu-category')];
                 const delay = siblings.indexOf(el) * 100;
@@ -44,7 +43,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const content = document.getElementById('menu-' + target);
             content.classList.add('active');
 
-            // Re-trigger menu category animations for newly visible tab
             const cats = content.querySelectorAll('.menu-category');
             cats.forEach((cat, i) => {
                 cat.classList.remove('animate-in');
@@ -53,7 +51,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // Trigger initial visible tab categories on load
     const activeTabContent = document.querySelector('.menu-tab-content.active');
     if (activeTabContent) {
         activeTabContent.querySelectorAll('.menu-category').forEach((cat, i) => {
@@ -97,7 +94,6 @@ document.addEventListener('DOMContentLoaded', () => {
         mobileCloseBtn.addEventListener('click', () => toggleMenu(false));
     }
 
-    // Close on link click
     if (mobileOverlay) {
         mobileOverlay.querySelectorAll('.mobile-link').forEach(link => {
             link.addEventListener('click', () => toggleMenu(false));
@@ -129,7 +125,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const step = (currentTime) => {
             const elapsed = currentTime - startTime;
             const progress = Math.min(elapsed / duration, 1);
-            // Ease out quad
             const eased = 1 - (1 - progress) * (1 - progress);
             const current = Math.round(eased * target);
             el.textContent = current.toLocaleString();
@@ -143,184 +138,211 @@ document.addEventListener('DOMContentLoaded', () => {
        7. HERO CANVAS SCROLL SEQUENCE
     ====================================================== */
     const canvas = document.getElementById("hero-canvas");
-    if (!canvas) return;
 
-    const context = canvas.getContext("2d");
-    const heroScrollContainer = document.querySelector(".hero-scroll-container");
+    // FIX 1: Don't return early — gate canvas logic so sections 8–10 always run.
+    if (canvas) {
+        const context = canvas.getContext("2d");
 
-    const setCanvasSize = () => {
-        const dpr = window.devicePixelRatio || 1;
-        const w = window.innerWidth;
-        const h = window.innerHeight;
-        canvas.width = Math.round(w * dpr);
-        canvas.height = Math.round(h * dpr);
-        // Keep CSS size in sync so the canvas doesn't stretch
-        canvas.style.width = w + 'px';
-        canvas.style.height = h + 'px';
-    };
-    setCanvasSize();
+        const setCanvasSize = () => {
+            const dpr = window.devicePixelRatio || 1;
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+            canvas.width = Math.round(w * dpr);
+            canvas.height = Math.round(h * dpr);
+            canvas.style.width = w + 'px';
+            canvas.style.height = h + 'px';
+        };
+        setCanvasSize();
 
-    let loadedFrameCount = 0;
-    const images = [];
+        const TOTAL_FRAMES = 80;
 
-    const drawImageProp = (ctx, img, x, y, w, h, offsetX = 0.5, offsetY = 0.5) => {
-        if (!img || !img.naturalWidth) return;
-        const iw = img.naturalWidth, ih = img.naturalHeight;
-        const r = Math.max(w / iw, h / ih);
-        const nw = iw * r, nh = ih * r;
-        let cx = 0, cy = 0, cw = nw, ch = nh;
+        // FIX 2: Pre-allocate a fixed-size array so parallel loads land at the
+        // correct index regardless of which image resolves first.
+        const images = new Array(TOTAL_FRAMES).fill(null);
+        let lastDrawnFrame = -1;
 
-        if (nw >= w) { cx = (nw - w) * offsetX; cw = w; }
-        if (nh >= h) { cy = (nh - h) * offsetY; ch = h; }
+        const drawImageProp = (ctx, img, x, y, w, h, offsetX = 0.5, offsetY = 0.5) => {
+            if (!img || !img.naturalWidth) return;
+            const iw = img.naturalWidth, ih = img.naturalHeight;
+            const r = Math.max(w / iw, h / ih);
+            const nw = iw * r, nh = ih * r;
+            let cx = 0, cy = 0, cw = nw, ch = nh;
 
-        ctx.drawImage(img, cx / r, cy / r, cw / r, ch / r, x, y, w, h);
-    };
+            if (nw >= w) { cx = (nw - w) * offsetX; cw = w; }
+            if (nh >= h) { cy = (nh - h) * offsetY; ch = h; }
 
-    const drawFrame = (index) => {
-        const img = images[index];
-        if (img && img.complete && img.naturalWidth) {
-            context.clearRect(0, 0, canvas.width, canvas.height);
-            drawImageProp(context, img, 0, 0, canvas.width, canvas.height);
-            lastDrawnFrame = index;
-        }
-    };
-
-    const TOTAL_FRAMES = 80;
-
-    const preloadImagesDynamically = () => {
-        let currentIndex = 1;
-
-        const loadNextImage = () => {
-            if (currentIndex > TOTAL_FRAMES) return;
-            const img = new Image();
-
-            img.onload = () => {
-                images.push(img);
-                if (currentIndex === 1) {
-                    drawFrame(0);
-                }
-                currentIndex++;
-                loadNextImage();
-            };
-
-            img.onerror = () => {
-                currentIndex++;
-                loadNextImage();
-            };
-
-            img.src = `./images/img_${currentIndex}.jpg`;
+            ctx.drawImage(img, cx / r, cy / r, cw / r, ch / r, x, y, w, h);
         };
 
-        loadNextImage();
-    };
+        const drawFrame = (index) => {
+            const img = images[index];
+            if (img && img.complete && img.naturalWidth) {
+                context.clearRect(0, 0, canvas.width, canvas.height);
+                drawImageProp(context, img, 0, 0, canvas.width, canvas.height);
+                lastDrawnFrame = index;
+            }
+        };
 
-    let targetFrame = 0;
-    let currentFrameIdx = 0;
-    let lastDrawnFrame = -1;
+        // FIX 3: Find the nearest already-loaded frame so there's no blank canvas
+        // while production images are still downloading.
+        const drawNearestLoaded = (targetIdx) => {
+            // Prefer an exact match, then search outward in both directions.
+            for (let offset = 0; offset < TOTAL_FRAMES; offset++) {
+                const lo = targetIdx - offset;
+                const hi = targetIdx + offset;
+                if (lo >= 0 && images[lo]?.complete && images[lo]?.naturalWidth) {
+                    drawFrame(lo);
+                    return;
+                }
+                if (hi < TOTAL_FRAMES && images[hi]?.complete && images[hi]?.naturalWidth) {
+                    drawFrame(hi);
+                    return;
+                }
+            }
+        };
 
-    let isLocked = true;
-    let virtualScroll = 0;
-    const SCROLL_PER_FRAME = 60; // Increased from 30 to 60 to slow down the frame rate per scroll
-    const MAX_VIRTUAL_SCROLL = (TOTAL_FRAMES - 1) * SCROLL_PER_FRAME;
+        // FIX 4: Load all images in parallel — each image starts downloading
+        // immediately instead of waiting for the previous one to finish.
+        // This is the main reason it glitched in production.
+        const preloadImagesDynamically = () => {
+            for (let i = 0; i < TOTAL_FRAMES; i++) {
+                const img = new Image();
+                const frameIndex = i; // capture for closure
 
-    const lockHero = () => {
-        isLocked = true;
-        document.body.style.overflow = 'hidden';
-    };
+                img.onload = () => {
+                    images[frameIndex] = img;
+                    // Draw the very first frame as soon as it's ready.
+                    if (frameIndex === 0 && lastDrawnFrame === -1) {
+                        drawFrame(0);
+                    }
+                };
 
-    const unlockHero = () => {
-        isLocked = false;
-        document.body.style.overflow = '';
-    };
+                // On error just leave images[frameIndex] as null;
+                // drawNearestLoaded will skip over gaps gracefully.
+                img.onerror = () => { };
 
-    const handleScrollEvent = (deltaY) => {
-        if (!isLocked) return;
-        
-        virtualScroll += deltaY;
-        virtualScroll = Math.max(0, Math.min(MAX_VIRTUAL_SCROLL, virtualScroll));
-        targetFrame = virtualScroll / SCROLL_PER_FRAME;
+                img.src = `./images/img_${i + 1}.jpg`;
+            }
+        };
 
-        if (virtualScroll >= MAX_VIRTUAL_SCROLL && deltaY > 0) {
-            unlockHero(); // Animation finished fully -> Unlock page
-        } else if (virtualScroll <= 0 && deltaY < 0) {
-            window.scrollTo({ top: 0, behavior: 'instant' }); 
-        }
-    };
+        let targetFrame = 0;
+        let currentFrameIdx = 0;
 
-    window.addEventListener('wheel', (e) => {
-        if (isLocked) {
-            e.preventDefault();
-            handleScrollEvent(e.deltaY);
-        }
-    }, { passive: false });
+        const SCROLL_PER_FRAME = 60;
+        const MAX_VIRTUAL_SCROLL = (TOTAL_FRAMES - 1) * SCROLL_PER_FRAME;
 
-    let touchStartY = 0;
-    window.addEventListener('touchstart', (e) => {
-        touchStartY = e.touches[0].clientY;
-    }, { passive: true });
+        let isLocked = true;
+        let virtualScroll = 0;
 
-    window.addEventListener('touchmove', (e) => {
-        if (isLocked) {
-            e.preventDefault();
-            const dy = touchStartY - e.touches[0].clientY;
-            touchStartY = e.touches[0].clientY;
-            handleScrollEvent(dy);
-        }
-    }, { passive: false });
+        // FIX 5: Guard flag prevents lockHero → scroll event → lockHero loops.
+        let suppressScrollLock = false;
 
-    window.addEventListener('scroll', () => {
-        // Re-lock hero when user scrolls back to the very top natively
-        if (window.scrollY <= 2 && !isLocked) {
-            window.scrollTo({ top: 0, behavior: 'instant' });
-            virtualScroll = MAX_VIRTUAL_SCROLL - 1; // back off slightly so it accepts upward scroll
+        const lockHero = () => {
+            isLocked = true;
+            document.body.style.overflow = 'hidden';
+        };
+
+        const unlockHero = () => {
+            isLocked = false;
+            document.body.style.overflow = '';
+        };
+
+        const handleScrollEvent = (deltaY) => {
+            if (!isLocked) return;
+
+            virtualScroll += deltaY;
+            virtualScroll = Math.max(0, Math.min(MAX_VIRTUAL_SCROLL, virtualScroll));
             targetFrame = virtualScroll / SCROLL_PER_FRAME;
-            lockHero();
-        }
-    });
 
-    window.addEventListener('resize', () => {
-        setCanvasSize();
-        lastDrawnFrame = -1;
-        const snapFrame = Math.min(images.length - 1, Math.max(0, Math.round(currentFrameIdx)));
-        if (snapFrame >= 0) drawFrame(snapFrame);
-    });
+            if (virtualScroll >= MAX_VIRTUAL_SCROLL && deltaY > 0) {
+                unlockHero();
+            } else if (virtualScroll <= 0 && deltaY < 0) {
+                suppressScrollLock = true;
+                window.scrollTo({ top: 0, behavior: 'instant' });
+                suppressScrollLock = false;
+            }
+        };
 
-    const updateFrameLoop = () => {
-        if (images.length > 0) {
-            // REMOVED LERP: Frame matches scroll target instantly so it never animates "on its own" after you stop scrolling
+        window.addEventListener('wheel', (e) => {
+            if (isLocked) {
+                e.preventDefault();
+                handleScrollEvent(e.deltaY);
+            }
+        }, { passive: false });
+
+        let touchStartY = 0;
+        window.addEventListener('touchstart', (e) => {
+            touchStartY = e.touches[0].clientY;
+        }, { passive: true });
+
+        window.addEventListener('touchmove', (e) => {
+            if (isLocked) {
+                e.preventDefault();
+                const dy = touchStartY - e.touches[0].clientY;
+                touchStartY = e.touches[0].clientY;
+                handleScrollEvent(dy);
+            }
+        }, { passive: false });
+
+        window.addEventListener('scroll', () => {
+            // FIX 6: Skip re-lock entirely if we caused this scroll event ourselves.
+            if (suppressScrollLock) return;
+
+            if (window.scrollY <= 2 && !isLocked) {
+                suppressScrollLock = true;
+                window.scrollTo({ top: 0, behavior: 'instant' });
+                suppressScrollLock = false;
+
+                virtualScroll = MAX_VIRTUAL_SCROLL - 1;
+                targetFrame = virtualScroll / SCROLL_PER_FRAME;
+                lockHero();
+            }
+        });
+
+        window.addEventListener('resize', () => {
+            setCanvasSize();
+            lastDrawnFrame = -1;
+            const snapFrame = Math.min(TOTAL_FRAMES - 1, Math.max(0, Math.round(currentFrameIdx)));
+            drawNearestLoaded(snapFrame);
+        });
+
+        const updateFrameLoop = () => {
             currentFrameIdx = targetFrame;
-            
-            let frameToDraw = Math.min(TOTAL_FRAMES - 1, Math.max(0, Math.round(currentFrameIdx)));
-            
-            // Safe fallback if target frame hasn't loaded yet
-            frameToDraw = Math.min(frameToDraw, images.length - 1);
+            const frameToDraw = Math.min(TOTAL_FRAMES - 1, Math.max(0, Math.round(currentFrameIdx)));
 
             if (frameToDraw !== lastDrawnFrame) {
-                drawFrame(frameToDraw);
+                // FIX 7: Use nearest-loaded fallback instead of hard-clamping
+                // to images.length - 1, which caused frame jumps in production
+                // while images were still downloading.
+                if (images[frameToDraw]?.complete && images[frameToDraw]?.naturalWidth) {
+                    drawFrame(frameToDraw);
+                } else {
+                    drawNearestLoaded(frameToDraw);
+                }
             }
+
+            requestAnimationFrame(updateFrameLoop);
+        };
+
+        if (window.scrollY > 0) {
+            unlockHero();
+            virtualScroll = MAX_VIRTUAL_SCROLL;
+            targetFrame = TOTAL_FRAMES - 1;
+            currentFrameIdx = TOTAL_FRAMES - 1;
+        } else {
+            lockHero();
         }
-        requestAnimationFrame(updateFrameLoop);
-    };
 
-    // Initialize state properly if page is reloaded mid-scroll
-    if (window.scrollY > 0) {
-        unlockHero();
-        virtualScroll = MAX_VIRTUAL_SCROLL;
-        targetFrame = TOTAL_FRAMES - 1;
-        currentFrameIdx = TOTAL_FRAMES - 1;
-    } else {
-        lockHero();
+        preloadImagesDynamically();
+        updateFrameLoop();
     }
-
-    preloadImagesDynamically();
-    updateFrameLoop();
 
     /* ======================================================
        8. ROAST ITEM STAGGER REVEAL
     ====================================================== */
     const roastItems = document.querySelectorAll('.roast-item');
     const roastObserver = new IntersectionObserver((entries) => {
-        entries.forEach((entry, i) => {
+        entries.forEach((entry) => {
             if (entry.isIntersecting) {
                 const el = entry.target;
                 const allItems = [...el.parentElement.querySelectorAll('.roast-item')];
