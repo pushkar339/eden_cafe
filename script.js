@@ -216,28 +216,69 @@ document.addEventListener('DOMContentLoaded', () => {
     let targetFrame = 0;
     let currentFrameIdx = 0;
     let lastDrawnFrame = -1;
+    let heroLocked = true; // true = scroll hijacked for animation
 
-    const getScrollRange = () => {
-        // Use scrollHeight to get the true pinned-section scroll distance
-        return Math.max(1, (heroScrollContainer.scrollHeight || heroScrollContainer.clientHeight) - window.innerHeight);
+    // How many pixels of wheel delta = 1 frame advance
+    const FRAME_SENSITIVITY = 0.3;
+    let touchStartY = 0;
+
+    // ── Drive the animation forward/backward ──────────────────────────────────
+    const driveAnimation = (delta) => {
+        if (loadedFrameCount === 0) return;
+        const maxFrame = loadedFrameCount - 1;
+        targetFrame = Math.min(maxFrame, Math.max(0, targetFrame + delta * FRAME_SENSITIVITY));
+
+        if (delta > 0 && targetFrame >= maxFrame - 0.5) {
+            targetFrame = maxFrame;
+            unlockHero(); // animation complete → release page scroll
+        }
     };
 
+    // ── Lock: keep page pinned at top ─────────────────────────────────────────
+    const lockHero = () => {
+        heroLocked = true;
+        window.scrollTo({ top: 0, behavior: 'instant' });
+        document.documentElement.style.overflowY = 'hidden';
+    };
+
+    // ── Unlock: let page scroll freely ────────────────────────────────────────
+    const unlockHero = () => {
+        heroLocked = false;
+        document.documentElement.style.overflowY = '';
+    };
+
+    // Re-lock when user scrolls back to the very top
     window.addEventListener('scroll', () => {
-        const scrollTop = window.scrollY;
-        const containerBottom = heroScrollContainer.offsetTop + (heroScrollContainer.scrollHeight || heroScrollContainer.clientHeight);
-        if (scrollTop <= containerBottom) {
-            const maxScroll = getScrollRange();
-            const scrollFraction = Math.min(Math.max(scrollTop / maxScroll, 0), 1);
-            if (loadedFrameCount > 0) {
-                targetFrame = scrollFraction * (loadedFrameCount - 1);
-            }
+        if (!heroLocked && window.scrollY === 0) {
+            targetFrame = loadedFrameCount - 1; // start reverse from last frame
+            lockHero();
         }
     }, { passive: true });
+
+    // Wheel hijack
+    window.addEventListener('wheel', (e) => {
+        if (!heroLocked) return;
+        e.preventDefault();
+        driveAnimation(e.deltaY);
+    }, { passive: false });
+
+    // Touch hijack
+    window.addEventListener('touchstart', (e) => {
+        if (!heroLocked) return;
+        touchStartY = e.touches[0].clientY;
+    }, { passive: true });
+
+    window.addEventListener('touchmove', (e) => {
+        if (!heroLocked) return;
+        e.preventDefault();
+        const dy = touchStartY - e.touches[0].clientY;
+        touchStartY = e.touches[0].clientY;
+        driveAnimation(dy);
+    }, { passive: false });
 
     window.addEventListener('resize', () => {
         setCanvasSize();
         lastDrawnFrame = -1;
-        // Immediately redraw current frame at new size
         const snapFrame = Math.min(loadedFrameCount - 1, Math.max(0, Math.round(currentFrameIdx)));
         if (snapFrame >= 0) drawFrame(snapFrame);
     });
@@ -245,15 +286,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const updateFrameLoop = () => {
         if (loadedFrameCount > 0) {
             const diff = targetFrame - currentFrameIdx;
-            // Snap directly when very close to avoid infinite drift
             if (Math.abs(diff) < 0.5) {
                 currentFrameIdx = targetFrame;
             } else {
-                currentFrameIdx += diff * 0.1;
+                currentFrameIdx += diff * 0.12;
             }
 
             const frameToDraw = Math.min(loadedFrameCount - 1, Math.max(0, Math.round(currentFrameIdx)));
-
             if (frameToDraw !== lastDrawnFrame) {
                 drawFrame(frameToDraw);
             }
@@ -261,6 +300,8 @@ document.addEventListener('DOMContentLoaded', () => {
         requestAnimationFrame(updateFrameLoop);
     };
 
+    // Start locked at frame 0
+    lockHero();
     preloadImagesDynamically();
     updateFrameLoop();
 
