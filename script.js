@@ -228,7 +228,8 @@ document.addEventListener('DOMContentLoaded', () => {
         let targetFrame = 0;
         let currentFrameIdx = 0;
 
-        const SCROLL_PER_FRAME = 60;
+        // Use a faster rate for mobile devices to prevent excessive swiping
+        const SCROLL_PER_FRAME = window.innerWidth > 768 ? 60 : 25;
         const MAX_VIRTUAL_SCROLL = (TOTAL_FRAMES - 1) * SCROLL_PER_FRAME;
 
         let isLocked = true;
