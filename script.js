@@ -308,7 +308,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         const updateFrameLoop = () => {
-            currentFrameIdx = targetFrame;
+            // Smoothly interpolate current frame towards target frame for a buttery smooth scroll effect
+            currentFrameIdx += (targetFrame - currentFrameIdx) * 0.15;
             const frameToDraw = Math.min(TOTAL_FRAMES - 1, Math.max(0, Math.round(currentFrameIdx)));
 
             if (frameToDraw !== lastDrawnFrame) {
